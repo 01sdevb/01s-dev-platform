@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "wouter";
 import {
   useGetScript,
@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   Copy,
@@ -24,7 +25,20 @@ import {
   Calendar,
   Code2,
   Gamepad2,
+  MessageSquare,
+  Trash2,
+  Send,
 } from "lucide-react";
+
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "").replace(/\/[^/]*$/, "");
+
+interface Comment {
+  id: number;
+  content: string;
+  createdAt: string;
+  userId: number;
+  username: string;
+}
 
 export default function ScriptDetail() {
   const params = useParams<{ id: string }>();
@@ -32,6 +46,11 @@ export default function ScriptDetail() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(true);
+  const [newComment, setNewComment] = useState("");
+  const [postingComment, setPostingComment] = useState(false);
 
   const { data: script, isLoading } = useGetScript(id, {
     query: { queryKey: getGetScriptQueryKey(id), enabled: !!id },
@@ -64,6 +83,25 @@ export default function ScriptDetail() {
     }
   }, [id, script?.id]);
 
+  const fetchComments = async () => {
+    if (!id) return;
+    setCommentsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/scripts/${id}/comments`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setComments(data);
+      }
+    } catch {
+    } finally {
+      setCommentsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (id) fetchComments();
+  }, [id]);
+
   const handleCopy = () => {
     if (!script) return;
     navigator.clipboard.writeText(script.code);
@@ -82,6 +120,51 @@ export default function ScriptDetail() {
     likeMutation.mutate({ id });
   };
 
+  const handlePostComment = async () => {
+    if (!user) {
+      toast({ title: "Login required", description: "You need to be logged in to comment", variant: "destructive" });
+      return;
+    }
+    if (!newComment.trim()) return;
+    setPostingComment(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/scripts/${id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ content: newComment.trim() }),
+      });
+      if (res.ok) {
+        const comment = await res.json();
+        setComments((prev) => [comment, ...prev]);
+        setNewComment("");
+        toast({ title: "Comment posted!" });
+      } else {
+        const err = await res.json();
+        toast({ title: "Error", description: err.error, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to post comment", variant: "destructive" });
+    } finally {
+      setPostingComment(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/scripts/${id}/comments/${commentId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        setComments((prev) => prev.filter((c) => c.id !== commentId));
+        toast({ title: "Comment deleted" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to delete comment", variant: "destructive" });
+    }
+  };
+
   const getCategoryColor = (category: string) => {
     const colors: Record<string, string> = {
       GUI: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -91,6 +174,18 @@ export default function ScriptDetail() {
       Tycoon: "bg-amber-500/10 text-amber-500 border-amber-500/20",
     };
     return colors[category] || "bg-zinc-500/10 text-zinc-500 border-zinc-500/20";
+  };
+
+  const timeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(dateStr).toLocaleDateString();
   };
 
   if (isLoading) {
@@ -121,7 +216,6 @@ export default function ScriptDetail() {
 
   return (
     <div className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 space-y-6">
-      {/* Back button */}
       <Button variant="ghost" size="sm" asChild>
         <Link href="/">
           <ArrowLeft className="h-4 w-4 mr-2" />
@@ -150,7 +244,6 @@ export default function ScriptDetail() {
 
         <h1 className="text-3xl md:text-4xl font-bold">{script.title}</h1>
 
-        {/* Meta info */}
         <div className="flex flex-wrap gap-6 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <User className="h-4 w-4" />
@@ -176,6 +269,10 @@ export default function ScriptDetail() {
             <Eye className="h-4 w-4" />
             <span>{script.views.toLocaleString()} views</span>
           </div>
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4" />
+            <span>{comments.length} comments</span>
+          </div>
         </div>
       </div>
 
@@ -190,7 +287,6 @@ export default function ScriptDetail() {
           variant={script.isLikedByMe ? "default" : "outline"}
           className="gap-2"
           disabled={likeMutation.isPending}
-          data-testid="button-like"
         >
           <ThumbsUp className="h-4 w-4" />
           {script.isLikedByMe ? "Liked" : "Like"} ({script.likes.toLocaleString()})
@@ -222,6 +318,105 @@ export default function ScriptDetail() {
             <code className="text-foreground">{script.code}</code>
           </pre>
         </div>
+      </div>
+
+      {/* Comments */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 font-semibold text-lg">
+          <MessageSquare className="h-5 w-5 text-primary" />
+          <h3>Comments ({comments.length})</h3>
+        </div>
+
+        {/* Post comment */}
+        <div className="p-4 bg-card border border-border/50 rounded-xl space-y-3">
+          {user ? (
+            <>
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold">
+                  {user.username[0].toUpperCase()}
+                </div>
+                <span>{user.username}</span>
+              </div>
+              <Textarea
+                placeholder="Write a comment..."
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                className="resize-none bg-muted/30"
+                rows={3}
+                maxLength={1000}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handlePostComment();
+                }}
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{newComment.length}/1000 · Ctrl+Enter to post</span>
+                <Button
+                  size="sm"
+                  onClick={handlePostComment}
+                  disabled={postingComment || !newComment.trim()}
+                  className="gap-2"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {postingComment ? "Posting..." : "Post Comment"}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-2">
+              <Link href="/login" className="text-primary hover:underline font-medium">Log in</Link>{" "}
+              to leave a comment
+            </p>
+          )}
+        </div>
+
+        {/* Comment list */}
+        {commentsLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="p-4 bg-card border border-border/50 rounded-xl space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ))}
+          </div>
+        ) : comments.length === 0 ? (
+          <div className="py-10 text-center text-muted-foreground">
+            <MessageSquare className="h-10 w-10 mx-auto mb-3 opacity-20" />
+            <p className="text-sm">No comments yet. Be the first!</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {comments.map((comment) => (
+              <div key={comment.id} className="p-4 bg-card border border-border/50 rounded-xl space-y-2 group">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold">
+                      {comment.username[0].toUpperCase()}
+                    </div>
+                    <Link
+                      href={`/profile/${comment.username}`}
+                      className="text-sm font-semibold hover:text-primary transition-colors"
+                    >
+                      {comment.username}
+                    </Link>
+                    <span className="text-xs text-muted-foreground">{timeAgo(comment.createdAt)}</span>
+                  </div>
+                  {user && user.id === comment.userId && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDeleteComment(comment.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+                <p className="text-sm text-foreground/90 whitespace-pre-wrap pl-9">{comment.content}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
