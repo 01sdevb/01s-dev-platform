@@ -28,6 +28,7 @@ import {
   MessageSquare,
   Trash2,
   Send,
+  Star,
 } from "lucide-react";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "").replace(/\/[^/]*$/, "");
@@ -38,6 +39,66 @@ interface Comment {
   createdAt: string;
   userId: number;
   username: string;
+}
+
+interface RatingData {
+  average: number | null;
+  myRating: number | null;
+}
+
+function StarRating({
+  average,
+  myRating,
+  onRate,
+  disabled,
+}: {
+  average: number | null;
+  myRating: number | null;
+  onRate: (rating: number) => void;
+  disabled: boolean;
+}) {
+  const [hovered, setHovered] = useState<number | null>(null);
+
+  const display = hovered ?? myRating ?? 0;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-1">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            type="button"
+            disabled={disabled}
+            onClick={() => onRate(star)}
+            onMouseEnter={() => !disabled && setHovered(star)}
+            onMouseLeave={() => setHovered(null)}
+            className={`transition-colors focus:outline-none ${disabled ? "cursor-default" : "cursor-pointer"}`}
+          >
+            <Star
+              className={`w-6 h-6 transition-colors ${
+                star <= display
+                  ? "fill-amber-400 text-amber-400"
+                  : "fill-transparent text-muted-foreground"
+              }`}
+            />
+          </button>
+        ))}
+        {average !== null && (
+          <span className="ml-2 text-sm text-muted-foreground font-medium">
+            {average.toFixed(1)} / 5
+          </span>
+        )}
+      </div>
+      {myRating !== null && (
+        <p className="text-xs text-muted-foreground">
+          You rated this {myRating} star{myRating !== 1 ? "s" : ""}
+        </p>
+      )}
+      {myRating === null && !disabled && (
+        <p className="text-xs text-muted-foreground">Click a star to rate this script</p>
+      )}
+    </div>
+  );
 }
 
 export default function ScriptDetail() {
@@ -51,6 +112,10 @@ export default function ScriptDetail() {
   const [commentsLoading, setCommentsLoading] = useState(true);
   const [newComment, setNewComment] = useState("");
   const [postingComment, setPostingComment] = useState(false);
+
+  const [ratingData, setRatingData] = useState<RatingData>({ average: null, myRating: null });
+  const [ratingLoading, setRatingLoading] = useState(true);
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   const { data: script, isLoading } = useGetScript(id, {
     query: { queryKey: getGetScriptQueryKey(id), enabled: !!id },
@@ -98,8 +163,26 @@ export default function ScriptDetail() {
     }
   };
 
+  const fetchRating = async () => {
+    if (!id) return;
+    setRatingLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/scripts/${id}/rating`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setRatingData(data);
+      }
+    } catch {
+    } finally {
+      setRatingLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (id) fetchComments();
+    if (id) {
+      fetchComments();
+      fetchRating();
+    }
   }, [id]);
 
   const handleCopy = () => {
@@ -118,6 +201,39 @@ export default function ScriptDetail() {
       return;
     }
     likeMutation.mutate({ id });
+  };
+
+  const handleRate = async (rating: number) => {
+    if (!user) {
+      toast({
+        title: "Login required",
+        description: "You need to be logged in to rate scripts",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (submittingRating) return;
+    setSubmittingRating(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/scripts/${id}/rating`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ rating }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRatingData(data);
+        toast({ title: "Rating submitted!", description: `You gave this script ${rating} star${rating !== 1 ? "s" : ""}` });
+      } else {
+        const err = await res.json();
+        toast({ title: "Error", description: err.error, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to submit rating", variant: "destructive" });
+    } finally {
+      setSubmittingRating(false);
+    }
   };
 
   const handlePostComment = async () => {
@@ -291,6 +407,30 @@ export default function ScriptDetail() {
           <ThumbsUp className="h-4 w-4" />
           {script.isLikedByMe ? "Liked" : "Like"} ({script.likes.toLocaleString()})
         </Button>
+      </div>
+
+      {/* Star Rating */}
+      <div className="p-4 bg-card border border-border/50 rounded-xl space-y-2">
+        <div className="flex items-center gap-2 font-semibold">
+          <Star className="h-5 w-5 text-amber-400" />
+          <h3>Rate this Script</h3>
+        </div>
+        {ratingLoading ? (
+          <Skeleton className="h-8 w-48" />
+        ) : (
+          <StarRating
+            average={ratingData.average}
+            myRating={ratingData.myRating}
+            onRate={handleRate}
+            disabled={!user || submittingRating}
+          />
+        )}
+        {!user && (
+          <p className="text-xs text-muted-foreground">
+            <Link href="/login" className="text-primary hover:underline font-medium">Log in</Link>{" "}
+            to rate this script
+          </p>
+        )}
       </div>
 
       {/* Description */}
