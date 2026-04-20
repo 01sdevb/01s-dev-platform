@@ -1,9 +1,10 @@
 import { Router } from "express";
 import type { IRouter } from "express";
-import { db, scriptsTable, usersTable, scriptLikesTable } from "@workspace/db";
-import { eq, desc, and, like, sql, asc } from "drizzle-orm";
+import { db, scriptsTable, usersTable, scriptLikesTable, siteVisitsTable, notificationsTable } from "@workspace/db";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { requireAuth, optionalAuth } from "../middlewares/requireAuth";
 import { CreateScriptBody, ListScriptsQueryParams, GetScriptParams, DeleteScriptParams, LikeScriptParams, ViewScriptParams } from "@workspace/api-zod";
+import { pushNotification } from "./notifications";
 
 const router: IRouter = Router();
 
@@ -37,48 +38,30 @@ async function enrichScript(script: typeof scriptsTable.$inferSelect, authorUser
 
 router.get("/scripts", optionalAuth, async (req, res): Promise<void> => {
   const parsed = ListScriptsQueryParams.safeParse(req.query);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
   const { page = 1, limit = 12, search, category, sort = "newest" } = parsed.data;
   const offset = (page - 1) * limit;
-
   const conditions = [];
   if (search) {
     conditions.push(
       sql`(${scriptsTable.title} ILIKE ${`%${search}%`} OR ${scriptsTable.game} ILIKE ${`%${search}%`})`
     );
   }
-  if (category && category !== "All") {
-    conditions.push(eq(scriptsTable.category, category));
-  }
-
+  if (category && category !== "All") conditions.push(eq(scriptsTable.category, category));
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   let orderBy;
-  if (sort === "popular") {
-    orderBy = desc(scriptsTable.likes);
-  } else if (sort === "trending") {
-    orderBy = desc(sql`${scriptsTable.views} + ${scriptsTable.likes} * 2`);
-  } else {
-    orderBy = desc(scriptsTable.createdAt);
-  }
+  if (sort === "popular") orderBy = desc(scriptsTable.likes);
+  else if (sort === "trending") orderBy = desc(sql`${scriptsTable.views} + ${scriptsTable.likes} * 2`);
+  else orderBy = desc(scriptsTable.createdAt);
 
-  const [totalResult] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(scriptsTable)
-    .where(whereClause);
-
+  const [totalResult] = await db.select({ count: sql<number>`count(*)` }).from(scriptsTable).where(whereClause);
   const total = Number(totalResult.count);
   const totalPages = Math.ceil(total / limit);
 
   const scripts = await db
-    .select({
-      script: scriptsTable,
-      authorUsername: usersTable.username,
-    })
+    .select({ script: scriptsTable, authorUsername: usersTable.username })
     .from(scriptsTable)
     .innerJoin(usersTable, eq(scriptsTable.authorId, usersTable.id))
     .where(whereClause)
@@ -86,51 +69,34 @@ router.get("/scripts", optionalAuth, async (req, res): Promise<void> => {
     .limit(limit)
     .offset(offset);
 
-  const enriched = await Promise.all(
-    scripts.map(({ script, authorUsername }) =>
-      enrichScript(script, authorUsername, req.userId)
-    )
-  );
-
+  const enriched = await Promise.all(scripts.map(({ script, authorUsername }) => enrichScript(script, authorUsername, req.userId)));
   res.json({ scripts: enriched, total, page, totalPages });
 });
 
 router.get("/scripts/trending", optionalAuth, async (req, res): Promise<void> => {
   const scripts = await db
-    .select({
-      script: scriptsTable,
-      authorUsername: usersTable.username,
-    })
+    .select({ script: scriptsTable, authorUsername: usersTable.username })
     .from(scriptsTable)
     .innerJoin(usersTable, eq(scriptsTable.authorId, usersTable.id))
     .orderBy(desc(sql`${scriptsTable.views} + ${scriptsTable.likes} * 2`))
     .limit(5);
-
-  const enriched = await Promise.all(
-    scripts.map(({ script, authorUsername }) =>
-      enrichScript(script, authorUsername, req.userId)
-    )
-  );
-
+  const enriched = await Promise.all(scripts.map(({ script, authorUsername }) => enrichScript(script, authorUsername, req.userId)));
   res.json(enriched);
 });
 
 router.get("/scripts/stats", async (_req, res): Promise<void> => {
-  const [scriptStats] = await db
-    .select({
-      totalScripts: sql<number>`count(*)`,
-      totalLikes: sql<number>`coalesce(sum(${scriptsTable.likes}), 0)`,
-      totalViews: sql<number>`coalesce(sum(${scriptsTable.views}), 0)`,
-    })
-    .from(scriptsTable);
+  const [scriptStats] = await db.select({
+    totalScripts: sql<number>`count(*)`,
+    totalLikes: sql<number>`coalesce(sum(${scriptsTable.likes}), 0)`,
+    totalViews: sql<number>`coalesce(sum(${scriptsTable.views}), 0)`,
+  }).from(scriptsTable);
 
-  const [userStats] = await db
-    .select({ totalUsers: sql<number>`count(*)` })
-    .from(usersTable);
+  const [userStats] = await db.select({ totalUsers: sql<number>`count(*)` }).from(usersTable);
+  const [visitorStats] = await db.select({ totalVisitors: sql<number>`count(*)` }).from(siteVisitsTable);
 
   res.json({
     totalScripts: Number(scriptStats.totalScripts),
-    totalUsers: Number(userStats.totalUsers),
+    totalUsers: Number(userStats.totalUsers) + Number(visitorStats.totalVisitors),
     totalLikes: Number(scriptStats.totalLikes),
     totalViews: Number(scriptStats.totalViews),
   });
@@ -138,121 +104,76 @@ router.get("/scripts/stats", async (_req, res): Promise<void> => {
 
 router.get("/scripts/:id", optionalAuth, async (req, res): Promise<void> => {
   const params = GetScriptParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: "Invalid script ID" });
-    return;
-  }
-
+  if (!params.success) { res.status(400).json({ error: "Invalid script ID" }); return; }
   const [row] = await db
     .select({ script: scriptsTable, authorUsername: usersTable.username })
     .from(scriptsTable)
     .innerJoin(usersTable, eq(scriptsTable.authorId, usersTable.id))
     .where(eq(scriptsTable.id, params.data.id));
-
-  if (!row) {
-    res.status(404).json({ error: "Script not found" });
-    return;
-  }
-
-  const enriched = await enrichScript(row.script, row.authorUsername, req.userId);
-  res.json(enriched);
+  if (!row) { res.status(404).json({ error: "Script not found" }); return; }
+  res.json(await enrichScript(row.script, row.authorUsername, req.userId));
 });
 
 router.post("/scripts", requireAuth, async (req, res): Promise<void> => {
   const parsed = CreateScriptBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  const [script] = await db
-    .insert(scriptsTable)
-    .values({ ...parsed.data, authorId: req.userId! })
-    .returning();
-
-  const enriched = await enrichScript(script, req.username!, req.userId);
-  res.status(201).json(enriched);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  const [script] = await db.insert(scriptsTable).values({ ...parsed.data, authorId: req.userId! }).returning();
+  res.status(201).json(await enrichScript(script, req.username!, req.userId));
 });
 
 router.delete("/scripts/:id", requireAuth, async (req, res): Promise<void> => {
   const params = DeleteScriptParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: "Invalid script ID" });
-    return;
-  }
-
-  const [script] = await db
-    .select({ authorId: scriptsTable.authorId })
-    .from(scriptsTable)
-    .where(eq(scriptsTable.id, params.data.id));
-
-  if (!script) {
-    res.status(404).json({ error: "Script not found" });
-    return;
-  }
-
-  if (script.authorId !== req.userId) {
-    res.status(403).json({ error: "You can only delete your own scripts" });
-    return;
-  }
-
+  if (!params.success) { res.status(400).json({ error: "Invalid script ID" }); return; }
+  const [script] = await db.select({ authorId: scriptsTable.authorId }).from(scriptsTable).where(eq(scriptsTable.id, params.data.id));
+  if (!script) { res.status(404).json({ error: "Script not found" }); return; }
+  if (script.authorId !== req.userId) { res.status(403).json({ error: "You can only delete your own scripts" }); return; }
   await db.delete(scriptsTable).where(eq(scriptsTable.id, params.data.id));
   res.json({ message: "Script deleted successfully" });
 });
 
 router.post("/scripts/:id/like", requireAuth, async (req, res): Promise<void> => {
   const params = LikeScriptParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: "Invalid script ID" });
-    return;
-  }
-
+  if (!params.success) { res.status(400).json({ error: "Invalid script ID" }); return; }
   const { id } = params.data;
 
-  const [existing] = await db
-    .select({ id: scriptLikesTable.id })
-    .from(scriptLikesTable)
+  const [existing] = await db.select({ id: scriptLikesTable.id }).from(scriptLikesTable)
     .where(and(eq(scriptLikesTable.scriptId, id), eq(scriptLikesTable.userId, req.userId!)));
 
   let liked: boolean;
   if (existing) {
-    await db
-      .delete(scriptLikesTable)
-      .where(and(eq(scriptLikesTable.scriptId, id), eq(scriptLikesTable.userId, req.userId!)));
-    await db
-      .update(scriptsTable)
-      .set({ likes: sql`${scriptsTable.likes} - 1` })
-      .where(eq(scriptsTable.id, id));
+    await db.delete(scriptLikesTable).where(and(eq(scriptLikesTable.scriptId, id), eq(scriptLikesTable.userId, req.userId!)));
+    await db.update(scriptsTable).set({ likes: sql`${scriptsTable.likes} - 1` }).where(eq(scriptsTable.id, id));
     liked = false;
   } else {
     await db.insert(scriptLikesTable).values({ scriptId: id, userId: req.userId! });
-    await db
-      .update(scriptsTable)
-      .set({ likes: sql`${scriptsTable.likes} + 1` })
-      .where(eq(scriptsTable.id, id));
+    await db.update(scriptsTable).set({ likes: sql`${scriptsTable.likes} + 1` }).where(eq(scriptsTable.id, id));
     liked = true;
+
+    const [scriptRow] = await db
+      .select({ authorId: scriptsTable.authorId, title: scriptsTable.title })
+      .from(scriptsTable).where(eq(scriptsTable.id, id));
+    if (scriptRow && scriptRow.authorId !== req.userId) {
+      const [notification] = await db.insert(notificationsTable).values({
+        userId: scriptRow.authorId,
+        actorId: req.userId!,
+        actorUsername: req.username!,
+        scriptId: id,
+        scriptTitle: scriptRow.title,
+        type: "like",
+        message: `${req.username} liked your script "${scriptRow.title}"`,
+      }).returning();
+      pushNotification(scriptRow.authorId, { type: "notification", notification });
+    }
   }
 
-  const [updated] = await db
-    .select({ likes: scriptsTable.likes })
-    .from(scriptsTable)
-    .where(eq(scriptsTable.id, id));
-
+  const [updated] = await db.select({ likes: scriptsTable.likes }).from(scriptsTable).where(eq(scriptsTable.id, id));
   res.json({ liked, likes: updated?.likes ?? 0 });
 });
 
 router.post("/scripts/:id/view", async (req, res): Promise<void> => {
   const params = ViewScriptParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: "Invalid script ID" });
-    return;
-  }
-
-  await db
-    .update(scriptsTable)
-    .set({ views: sql`${scriptsTable.views} + 1` })
-    .where(eq(scriptsTable.id, params.data.id));
-
+  if (!params.success) { res.status(400).json({ error: "Invalid script ID" }); return; }
+  await db.update(scriptsTable).set({ views: sql`${scriptsTable.views} + 1` }).where(eq(scriptsTable.id, params.data.id));
   res.json({ message: "View registered" });
 });
 

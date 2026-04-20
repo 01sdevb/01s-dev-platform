@@ -5,6 +5,12 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
+const ALLOWED_ORIGINS = [
+  "https://01sdevb.github.io",
+  "http://localhost:3000",
+  "http://localhost:5173",
+];
+
 const app: Express = express();
 
 app.use(
@@ -12,27 +18,29 @@ app.use(
     logger,
     serializers: {
       req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
+        return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
       },
       res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
+        return { statusCode: res.statusCode };
       },
     },
   }),
 );
+
 app.use(
   cors({
-    origin: true,
+    origin: (origin, callback) => {
+      if (!origin || ALLOWED_ORIGINS.some(o => origin.startsWith(o))) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
     credentials: true,
   }),
 );
-app.use(cookieParser(process.env.SESSION_SECRET || "default-secret"));
+
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

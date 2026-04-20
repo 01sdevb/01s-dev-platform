@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { NotificationsBell } from "@/components/notifications-bell";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { theme, setTheme } = useTheme();
@@ -46,6 +47,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <div className="hidden md:flex items-center gap-2">
               {user ? (
                 <>
+                  <NotificationsBell />
                   <Link href="/upload">
                     <Button variant="outline" size="sm" className="gap-2">
                       <PlusSquare className="h-4 w-4" />

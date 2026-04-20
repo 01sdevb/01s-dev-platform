@@ -43,6 +43,7 @@ jobs:
           PORT: '3000'
           BASE_PATH: '/01s-dev/'
           NODE_ENV: 'production'
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

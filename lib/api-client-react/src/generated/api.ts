@@ -610,3 +610,95 @@ export function useGetUserProfile<
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+// ─── Visitors: Track ──────────────────────────────────────────────────────────
+
+export const getTrackVisitUrl = () => `/api/track-visit`;
+
+export const trackVisit = async (options?: RequestInit): Promise<VisitorResponse> =>
+  customFetch<VisitorResponse>(getTrackVisitUrl(), {
+    ...options,
+    method: "POST",
+    credentials: "include",
+  });
+
+export const getTrackVisitMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<Awaited<ReturnType<typeof trackVisit>>, TError, void, TContext>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<Awaited<ReturnType<typeof trackVisit>>, TError, void, TContext> => {
+  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof trackVisit>>, void> = () =>
+    trackVisit(requestOptions);
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useTrackVisit = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<Awaited<ReturnType<typeof trackVisit>>, TError, void, TContext>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<Awaited<ReturnType<typeof trackVisit>>, TError, void, TContext> => {
+  const mutationOptions = getTrackVisitMutationOptions(options);
+  return useMutation(mutationOptions);
+};
+
+// ─── Notifications: Get ───────────────────────────────────────────────────────
+
+export const getGetNotificationsUrl = () => `/api/notifications`;
+
+export const getNotifications = async (options?: RequestInit): Promise<Notification[]> =>
+  customFetch<Notification[]>(getGetNotificationsUrl(), {
+    ...options,
+    method: "GET",
+    credentials: "include",
+  });
+
+export const getGetNotificationsQueryKey = () => [`/api/notifications`] as const;
+
+export const getGetNotificationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNotifications>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getNotifications>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetNotificationsQueryKey();
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getNotifications>>> = ({ signal }) =>
+    getNotifications({ signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getNotifications>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useGetNotifications<
+  TData = Awaited<ReturnType<typeof getNotifications>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getNotifications>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNotificationsQueryOptions(options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+// ─── Notifications: Mark Read ─────────────────────────────────────────────────
+
+export const getMarkNotificationReadUrl = (id: number) => `/api/notifications/${id}/read`;
+
+export const markNotificationRead = async (id: number, options?: RequestInit): Promise<MessageResponse> =>
+  customFetch<MessageResponse>(getMarkNotificationReadUrl(id), {
+    ...options,
+    method: "POST",
+    credentials: "include",
+  });
+
+export const getMarkAllNotificationsReadUrl = () => `/api/notifications/read-all`;
+
+export const markAllNotificationsRead = async (options?: RequestInit): Promise<MessageResponse> =>
+  customFetch<MessageResponse>(getMarkAllNotificationsReadUrl(), {
+    ...options,
+    method: "POST",
+    credentials: "include",
+  });

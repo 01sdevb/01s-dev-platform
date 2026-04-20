@@ -1,10 +1,12 @@
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/contexts/auth-context";
 import { Layout } from "@/components/layout";
+import { trackVisit } from "@workspace/api-client-react";
 
 import Home from "@/pages/home";
 import ScriptDetail from "@/pages/script";
@@ -41,6 +43,13 @@ function Router() {
   );
 }
 
+function VisitTracker() {
+  useEffect(() => {
+    trackVisit().catch(() => {});
+  }, []);
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -48,6 +57,7 @@ function App() {
         <AuthProvider>
           <TooltipProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <VisitTracker />
               <Layout>
                 <Router />
               </Layout>
