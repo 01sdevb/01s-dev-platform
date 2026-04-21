@@ -1,3 +1,4 @@
+# Build and Deploy GitHub Pages workflow
 name: Build and Deploy to GitHub Pages
 
 on:
