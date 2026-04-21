@@ -6,6 +6,7 @@ import { z } from "zod";
 import { useLogin, getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/auth-context";
+import { setAuthToken } from "@/lib/auth-token";
 import {
   Form,
   FormControl,
@@ -54,6 +55,7 @@ export default function Login() {
   const loginMutation = useLogin({
     mutation: {
       onSuccess: (data) => {
+        if (data.token) setAuthToken(data.token);
         queryClient.setQueryData(getGetMeQueryKey(), data.user);
         toast({ title: "Welcome back!", description: `Logged in as ${data.user.username}` });
         setLocation("/");

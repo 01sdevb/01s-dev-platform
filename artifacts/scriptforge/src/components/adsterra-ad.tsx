@@ -82,7 +82,7 @@ export function GlobalAdsterraScripts() {
     document.body.appendChild(socialBar);
 
     let lastTrigger = 0;
-    const COOLDOWN_MS = 10_000;
+    const COOLDOWN_MS = 30_000;
 
     const handler = (e: MouseEvent) => {
       if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;

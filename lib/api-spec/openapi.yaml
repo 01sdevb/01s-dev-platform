@@ -577,9 +577,11 @@ components:
       properties:
         user:
           $ref: "#/components/schemas/User"
+        token:
+          type: string
         message:
           type: string
-      required: [user, message]
+      required: [user, token, message]
 
     Script:
       type: object

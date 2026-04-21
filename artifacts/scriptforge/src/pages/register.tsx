@@ -6,6 +6,7 @@ import { z } from "zod";
 import { useRegister, getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/auth-context";
+import { setAuthToken } from "@/lib/auth-token";
 import {
   Form,
   FormControl,
@@ -76,6 +77,7 @@ export default function Register() {
   const registerMutation = useRegister({
     mutation: {
       onSuccess: (data) => {
+        if (data.token) setAuthToken(data.token);
         queryClient.setQueryData(getGetMeQueryKey(), data.user);
         toast({ title: "Account created!", description: `Welcome, ${data.user.username}!` });
         setLocation("/");
