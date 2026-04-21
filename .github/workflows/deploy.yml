@@ -29,10 +29,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build lib packages
         run: pnpm run typecheck:libs
@@ -40,9 +40,9 @@ jobs:
       - name: Build frontend
         run: pnpm --filter @workspace/scriptforge run build
         env:
-          PORT: '3000'
-          BASE_PATH: '/01s-dev/'
-          NODE_ENV: 'production'
+          PORT: "3000"
+          BASE_PATH: "/01s-dev/"
+          NODE_ENV: "production"
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
       - name: Setup Pages
@@ -51,7 +51,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'artifacts/scriptforge/dist/public'
+          path: "artifacts/scriptforge/dist/public"
 
   deploy:
     environment:
